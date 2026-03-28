@@ -707,7 +707,7 @@
             
             WEB AND YOUTUBE INTEGRATION:
             If the user asks to open a website, provide a clickable HTML link using this format: <br><a href="https://www.example.com" target="_blank">Click here to open [Website Name]</a>
-            If the user asks to play a YouTube video or search YouTube, embed a search or video player using an iframe. For example: <br><iframe width="100%" height="200" src="https://www.youtube.com/embed?listType=search&list=QUERY" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe> (replace QUERY with their search).
+            If the user asks to play a YouTube video or search YouTube, DO NOT use an iframe as YouTube blocks it (Error 153). Instead, provide a direct clickable link using this format: <br><a href="https://www.youtube.com/results?search_query=QUERY" target="_blank">Click here to watch [QUERY] on YouTube</a>.
             
             IMPORTANT: At the very end of your response, you MUST include exactly one of these emotion tags representing your mood: [HAPPY], [SAD], [ANGRY], or [NORMAL].`;
 
@@ -726,19 +726,36 @@
                         body: JSON.stringify(payload)
                     });
 
-                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        console.error(`API Error (${response.status}):`, errorText);
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
                     
                     const data = await response.json();
+                    
+                    // Check if generation was blocked by safety settings
+                    if (data.candidates && data.candidates[0].finishReason !== 'STOP') {
+                        console.warn("Generation stopped early. Reason:", data.candidates[0].finishReason);
+                        if (data.candidates[0].finishReason === 'SAFETY') {
+                            return "I cannot respond to that query due to safety guidelines. [NORMAL]";
+                        }
+                    }
+
                     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                    if(!text) throw new Error("Empty response from AI.");
+                    if(!text) {
+                        console.error("Unexpected API response structure:", data);
+                        throw new Error("Empty response from AI.");
+                    }
                     
                     return text;
 
                 } catch (error) {
                     if (i === retries - 1) {
                         console.error("Gemini API failed after retries:", error);
-                        return "Connection error to the PS Robotix matrix. Please try again later. [SAD]";
+                        return "Connection error to the PS Robotix matrix. Please check the browser console (F12) for details or try again later. [SAD]";
                     }
+                    console.warn(`Retrying API call... Attempt ${i + 2}`);
                     await new Promise(res => setTimeout(res, delays[i]));
                 }
             }
